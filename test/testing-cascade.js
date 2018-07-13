@@ -1,6 +1,6 @@
-import Cascade from "../js/cascade.js";
+import Cascade from "../src/cascade.js";
 
-const Pet = Cascade({
+const Pet = Cascade.Model({
 	"name": {
 		type: String,
 		value: "hasn't been named"
@@ -24,7 +24,7 @@ const Pet = Cascade({
 	}
 });
 
-const Dog = Cascade({
+const Dog = Cascade.Model({
 	"noise": {
 		type: String,
 		value: "Bark!",
@@ -39,7 +39,7 @@ window.alfred = alfred;
 
 console.log(alfred);
 
-const Calendar = Cascade({
+const Calendar = Cascade.Model({
 	'basis': {
 		type: Date,
 		value: new Date()
@@ -137,4 +137,33 @@ function visualize(instance) {
 		</div>
 `;
 	return root;
+}
+
+// Circular dependencies:
+let result = false;
+try {
+	const Circle = Cascade.Model({
+		'regular': {
+			type: Number,
+			value: 5
+		},
+		'x': {
+			type: Object,
+			func: () => { },
+			dependencies: ['y']
+		},
+		'y': {
+			type: Object,
+			func: () => { },
+			dependencies: ['x']
+		}
+	});
+	console.log(Circle);
+} catch (e) {
+	result = true;
+}
+if (result) {
+	console.log("Successfully caught a circular dependency");
+} else {
+	console.error("Missed catching a circular dependency");
 }
