@@ -1,14 +1,45 @@
 "use strict";
 
+import { parameterList } from "./common.js";
+
 const propagationSym = Symbol("Cascade: Property update propagation list");
 
-// Kinds of property definitions
-const Kind = {
-	Fundamental: 0,
-	Computed: 1,
-	User: 2
-	//	Needed: 3
-};
+// TODO: Need a way of declaring what properties you need on linked/collected models to reduce network requests.
+// TODO: Need a way of declaring what constructors are available (ex. Rectangle(width, height), Circle(Radius),...)
+// TODO: Parse dependencies directly from the functions.  (Using something like: (new String(func)).match(...))
+// MAYBE: Asyncronous computed properties?  In a way, they already work, you just get a promise at the end rather than some asyncronous propagation.  Is that ok?
+
+// Errors:
+export class CascadeError extends Error {
+	constructor(message) {
+		super('Cascade - ' + message);
+	}
+}
+export class InternalError extends CascadeError {
+	constructor(message) {
+		super(`Internal Error: ${message}. You're welcome to report this.`);
+	}
+}
+export class InvalidDefinition extends CascadeError {
+	constructor(message) {
+		super(`Invalid Definition: ${message}.`);
+	}
+}
+export class IncompatibleDefinition extends CascadeError {
+	constructor(message) {
+		super(`Incompatible Definition: ${message}.`);
+	}
+}
+export class MalformedGraph extends CascadeError {
+	constructor(problemDefinitionNames) {
+		super(`Malformed Graph: Cascade attempted to create an empty layer of the dependency graph.  This usually indicates either a circular dependency or misspelled depency.  It would be located in one of these definitions: ${problemDefinitionNames.join(', ')}.`);
+	}
+}
+export class UseError extends CascadeError {
+	constructor(message) {
+		super(`Use Error: ${message}.`);
+	}
+}
 
 // Has some basic comparison functions which we can use to check if a property's value has changed.
 function compareFunction(def) {
@@ -43,7 +74,7 @@ function addDependents(dependents) {
 	dependency:
 	for (let dep of dependents) {
 		// Make sure that the dependent has at least one user
-		if (dep.kind == Kind.User || this._userCount.get(dep)) {
+		if (dep.value === undefined /* User */ || this._userCount.get(dep)) {
 			while (i < propagation.length) {
 				if (propagation[i] === dep) {
 					break dependency;
@@ -73,32 +104,19 @@ function* propagationIterator(propagation) {
 
 // Exhaust the propagation list
 function propagateUpdates() {
-	// If wer're fenced then cancel propagating updates.
+	// If we're fenced then cancel propagating updates.
 	if (this.fenced) {
 		return;
 	}
 	const propagation = this[propagationSym];
 
 	for (let prop of propagationIterator.call(this, propagation)) {
-		switch (prop.kind) {
-			case Kind.Fundamental:
-				throw new Error("Attempted to update a fundamental property: This is an issue with Cascade.");
-
-			case Kind.Computed:
-				prop.revalidate.call(this);
-				break;
-
-			/*
-			case Kinds.Needed:
-				throw new Error("Attempted to update a needed property: Cascade should have given you an error earlier.");
-			*/
-
-			case Kind.User:
-				prop.func.call(undefined, prop.dependencies.map(name => this[name]));
-				break;
-
-			default:
-				throw new Error("Unrecognized Property Kind: This is likely a bug in Cascade.");
+		if (prop.value) {
+			// Computed Property:
+			prop.revalidate.call(this);
+		} else {
+			// User:
+			prop.func.call(undefined, prop.dependencies.map(name => this[name]));
 		}
 	}
 }
@@ -134,57 +152,41 @@ function revalidateFunc(def) {
 	}
 
 	// Determine what revalidation function to choose.
-	switch (def.kind) {
-		case Kind.Fundamental:
-			return propagate(checkCached(newVal => newVal));
-		case Kind.Computed:
-			if (def.patch !== undefined) {
-				return checkCached(function () {
-					let oldVal = this._cache.get(def);
+	if (def.dependencies.length != 0) {
+		// Computed Property:
+		if (def.patch !== undefined) {
+			return checkCached(function () {
+				let oldVal = this._cache.get(def);
 
-					let inputs = def.dependencies.map(name => this[name]);
-					if (oldVal === undefined) {
-						// Cal func if we've never computed this property before.
-						newVal = def.func.apply(this, inputs);
-					} else {
-						// Otherwise patch the previous value given the new information.
-						// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
-						// MAYBE: Would .call(this, oldval, ...inputs) be better than the concat?
-						newVal = def.patch.apply(this, [oldVal].concat(inputs));
-					}
-					return newVal;
-				});
-			} else {
-				return checkCached(function () {
-					let inputs = def.dependencies.map(name => this[name]);
-					return def.func.apply(this, inputs);
-				});
-			}
-	}
-}
-
-function determineKind(def) {
-	if (def.type === undefined) {
-		throw new Error("Incomplete Definition: A property definition must have a type attribute.");
-	} else if (def.name === undefined) {
-		throw new Error("Internal Error: Cascade should have set the definition's name before calling determineKind().");
-	} else if (def.value !== undefined) {
-		if (def.func !== undefined || def.patch !== undefined) {
-			throw new Error("A Fundamental Property must not have a func or a patch method");
+				let inputs = def.dependencies.map(name => this[name]);
+				if (oldVal === undefined) {
+					// Cal func if we've never computed this property before.
+					newVal = def.value.apply(this, inputs);
+				} else {
+					// Otherwise patch the previous value given the new information.
+					// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
+					// MAYBE: Would .call(this, oldval, ...inputs) be better than the concat?
+					newVal = def.patch.apply(this, [oldVal].concat(inputs));
+				}
+				return newVal;
+			});
+		} else {
+			return checkCached(function () {
+				let inputs = def.dependencies.map(name => this[name]);
+				return def.value.apply(this, inputs);
+			});
 		}
-		return Kind.Fundamental;
-	} else if (def.func !== undefined) {
-		if (def.value !== undefined || def.readOnly !== undefined) {
-			throw new Error("A Computed Property must not have a value or a readOnly property");
-		}
-		return Kind.Computed;
 	} else {
-		throw new Error("Unknown kind");
+		// Simple Property:
+		return propagate(checkCached(newVal => newVal));
 	}
 }
+
 
 export default function (newPropertyDefinitions, base = Object) {
 	// Fundamental (depth 0) properties have their properties calculated at constructor call time.  That means that it's not a good spot for things that need DOM access.
+
+	// TODO: Need to break this into multiple files/sections.  It's unwieldy.
 
 	let propertyDefinitions;
 
@@ -201,7 +203,7 @@ export default function (newPropertyDefinitions, base = Object) {
 			// MAYBE: Replace with module level symbols?
 			this._cache = new Map();
 			this._userCount = new Map();
-			this.users = new Set();
+			this.users = new Map();
 
 			// Update the values for all of our fundamental properties
 			for (let prop of this.layers[0]) {
@@ -224,31 +226,78 @@ export default function (newPropertyDefinitions, base = Object) {
 			propagateUpdates.call(this)
 		}
 		use(deps, func) {
-			let userObj = {
-				kind: Kind.User,
-				func: func,
-				dependencies: deps,
-				path: new Set()
-			};
+			// TODO: reduce repetition
+			let userDef = this.users.get(func)
+			if (userDef !== undefined) {
+				userDef.path.forEach(def => {
+					let prev = this._userCount.get(def);
 
-			this.users.add(userObj);
+					// If this property didn't have a userCount before then it's user count should have been 0
+					if (prev === undefined) {
+						prev = 0;
+					}
+					// If the previous userCount is 0 then we need to revalidate the property because it likely hasn't been updated.
+					if (prev === 0 && def.dependencies != 0) {
+						def.revalidate.call(this);
+					}
 
-			// Multiple changes ahead = need to fence
-			this.fence();
+					this._userCount.set(def, prev + 1);
+				});
+			} else {
+				// TODO: Check if we've already been called with this func (If so, we just need to increment the userCounts
+				let userObj = {
+					func: func,
+					dependencies: deps,
+					path: new Set()
+				};
 
-			// WorkingDeps should also probably be a Set, I just don't know how to iterate over a Set and add items to it.
-			// TODO: Allow for dependencies on linked objects using a kind of dot notation.  "link.property" or "link.link.property" etc.
-			let workingDeps = deps.map(name => propertyDefinitions[name]);
-			const path = userObj.path;
-			while (workingDeps.length != 0) {
-				// MAYBE: Might not need to do a FIFO loop here which is probably slower.  I think a LIFO loop would be fine with push and pop.
-				const workingDef = workingDeps.shift();
-				path.add(workingDef);
-				workingDeps.concat(workingDef.dependencies);
+				this.users.set(func, userObj);
+
+				// Multiple changes ahead = need to fence
+				this.fence();
+
+				// WorkingDeps should also probably be a Set, I just don't know how to iterate over a Set and add items to it.
+				let workingDeps = deps.map(name => propertyDefinitions[name]);
+				const path = userObj.path;
+				while (workingDeps.length != 0) {
+					// MAYBE: Might not need to do a FIFO loop here which is probably slower.  I think a LIFO loop would be fine with push and pop.
+					const workingDef = workingDeps.shift();
+					path.add(workingDef);
+					workingDeps.concat(workingDef.dependencies);
+				}
+
+				// Actually increment the _userCount
+				this.activate(func);
+
+				// All clear (Update everything we need before adding ourself, that way we're not updated as part of their propagations, only future ones.)
+				this.unfence();
+
+				// MAYBE: Also allow dots for computed properties?  Propabably not.  Computed properties should be computed exclusively from fundamental properties.
+				// TODO: Allow for dependencies on linked objects using a kind of dot notation.  "link.property" or "link.link.property" etc.
+				// Add this user as a dependent on all of its dependencies
+				for (let name of deps) {
+					const dependency = propertyDefinitions[name];
+					let dotIndex = name.indexOf('.');
+					// Add the userObject as a dependent on the dependency
+					dependency.dependents.push(userObj);
+				}
+
+				// Actually call the function
+				return func.apply(null, deps.map(name => this[name]));
+			}
+		}
+		activate(func) {
+			let userDef = this.users.get(func);
+
+			if (userDef.active) {
+				return;
 			}
 
-			// Increment the userCount on the entire path
-			path.forEach(def => {
+			if (userDef === undefined) {
+				throw new UseError("Unable to activate a function which is not a user of this model");
+			}
+
+			userDef.path.forEach(def => {
 				let prev = this._userCount.get(def);
 
 				// If this property didn't have a userCount before then it's user count should have been 0
@@ -256,27 +305,61 @@ export default function (newPropertyDefinitions, base = Object) {
 					prev = 0;
 				}
 				// If the previous userCount is 0 then we need to revalidate the property because it likely hasn't been updated.
-				if (prev === 0 && def.kind == Kind.Computed) {
+				if (prev === 0 && def.dependencies.length != 0) {
 					def.revalidate.call(this);
 				}
 
 				this._userCount.set(def, prev + 1);
 			});
-			// After all the dependencies that need to have been revalidated, propagate their updates
-			//propagateUpdates.call(this, this[propagationSym]);
 
-			// Add this user as a dependent on all of its dependencies
-			deps.forEach(name => {
-				const dependency = propertyDefinitions[name];
-				// Add the userObject as a dependent on the dependency
-				dependency.dependents.push(userObj);
+			userDef.active = true;
+		}
+		deactivate(func) {
+			let userDef = this.users.get(func);
+
+			if (!userDef.active) {
+				return;
+			}
+
+			if (userDef === undefined) {
+				throw new UseError("Unable to deactivate a function which is not a user of this model");
+			}
+
+			userDef.path.forEach(def => {
+				let prev = this._userCount.get(def);
+
+				if (prev === undefined) {
+					throw new InternalError("User Count Is Undefined");
+				}
+				if (prev == 0) {
+					throw new InternalError("User Count Is Zero");
+				}
+
+				this._userCount.set(def, prev - 1);
 			});
 
-			// All clear
-			this.unfence();
+			userDef.active = false;
+		}
+	}
 
-			// Actually call the function
-			return func(deps.map(name => this[name]));
+	function definitionDependencies(def) {
+		// Handle errors
+		if (def === undefined) {
+			throw new InvalidDefinition('Property Definition missing');
+		}
+		if (def.type === undefined) {
+			throw new InvalidDefinition('Currently, definitions must have a type specified, even on simple properties');
+		}
+		if (def.value === undefined) {
+			throw new InvalidDefinition('A default value or value computing function must be defined on the definition');
+		}
+
+		if (def.value instanceof Function) {
+
+			// Computed property or computed default for a simple property
+			def.dependencies = parameterList(def.value);
+		} else {
+			def.dependencies = [];
 		}
 	}
 
@@ -289,25 +372,30 @@ export default function (newPropertyDefinitions, base = Object) {
 		// Set the name of the property.
 		prop.name = name;
 
-		// Determine the property's kind
-		prop.kind = determineKind(prop);
-
 		// Make sure that the property definition that we're overriding has the same format (type and kind) as the new definition
-		if (oldProp !== undefined && (oldProp.kind != prop.kind || oldProp.type !== prop.type)) {
-			throw new Error(`Incompatible definition: The definition for ${name} doesn't match a definition on the base-model.`);
+		if (oldProp !== undefined && oldProp.type !== prop.type) {
+			throw new IncompatibleDefinition(`The definition for ${name} doesn't match the definition on the base-model`);
 		}
+
+		// Add the definition's dependencies
+		definitionDependencies(prop);
+
+		// Make sure that all of the dependencies exist in the property definitions
+		for (let dep of prop.dependencies) {
+			if (propertyDefinitions[dep] === undefined && newPropertyDefinitions[dep] === undefined) {
+				throw new InvalidDefinition(`There is no property definition for ${dep}. Check if it is mistyped`);
+			}
+		}
+
 
 		// Copy our dependencies so that we can cross them off later
-		if (!(prop.dependencies instanceof Array)) {
-			prop.dependencies = [];
-		}
 		prop.workDeps = Array.from(prop.dependencies);
 
 		// Add the property to our property definitions
 		propertyDefinitions[name] = prop;
 	}
 
-	// Construct the dependency/propagation graph
+	// Construct the dependency graph
 	let propWorkingSet = Object.keys(propertyDefinitions);
 
 	// Define the layers:
@@ -337,17 +425,11 @@ export default function (newPropertyDefinitions, base = Object) {
 				layer.add(def);
 
 				let setter;
-				switch (def.kind) {
-					case Kind.Fundamental:
-						// Give it a setter.
-						setter = revalidateFunc(def);
-						break;
-					case Kind.Computed:
-						def.revalidate = revalidateFunc(def);
-						// MAYBE: Allow setters for computed properties?
-						break;
-					default:
-						throw new Error("Blah...");
+				if (depth == 0) {
+					setter = revalidateFunc(def);
+				} else {
+					// MAYBE: Allow setters for computed properties?
+					def.revalidate = revalidateFunc(def);
 				}
 
 				// Actually define the property
@@ -389,12 +471,12 @@ export default function (newPropertyDefinitions, base = Object) {
 
 		// Check for circular dependencies (if a full pass of the working prop list finds no properties that can be inserted into the graph then something is wrong).
 		if (layer.size == 0) {
-			throw new Error(`Empty Layer: There is likely a circular or miss spelled dependency(s) somewhere in these properties: ${propWorkingSet.join(', ')}`);
+			throw new MalformedGraph(propWorkingSet);
 		}
 
 		++depth;
 	}
 
-	// Return the model we've made
+	// Return the model we've constructed
 	return Model;
 }
