@@ -13,10 +13,16 @@
 		let funcs = [
 			// Different ways of defining a function:
 			function (param1, param2, param3) { console.log(param1, param2, param3); },
+			function(param1, param2, param3) { console.log(param1, param2, param3); },
+			function (param1, param2, param3) { console.log(param1, param2, param3); },
+			function (param1, param2, param3){ console.log(param1, param2, param3); },
 			function named(param1, param2, param3) { console.log(param1, param2, param3); },
 			(param1, param2, param3) => { console.log(param1, param2, param3); },
 			({ func(param1, param2, param3) { console.log(param1, param2, param3); } }).func,
 			new Function('param1', 'param2', 'param3', 'console.log(param1, param2, param3)'),
+			(x) => 2 * x,
+			function wierd_name(param1, param2, param3) { console.log(param1, param2, param3);},
+			x => 2 * x, // Currently broken
 
 			// No Parameters:
 			function () { console.log(''); },
