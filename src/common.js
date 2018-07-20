@@ -1,8 +1,11 @@
 "use strict";
 
 export function parameterList(func) {
-	// TODO: Give an error for default parameter values and destructuring.
+	if (!(func instanceof Function)) {
+		throw new Error("Expected a function");
+	}
 
+	// TODO: Give an error for default parameter values and destructuring.
 	let [, normal, specialArrow] = (new String(func))
 		.match(/^[\w\s]*\(([^)]*)\)|^(\w?)/);
 	if (specialArrow) {
