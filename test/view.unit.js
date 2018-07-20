@@ -1,5 +1,12 @@
 "use strict";
 
-describe('View', function () {
+import View from "../src/View.js";
+//import Model from "../src/Model.js";
 
+describe('View', function (html) {
+	it.skip('General Testing', function () {
+		console.log(View(null, function (html) {
+			return html`<div>${80 + 5}</div>${() => "happy"}`;
+		}));
+	});
 });
