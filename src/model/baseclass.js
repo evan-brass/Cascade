@@ -34,6 +34,60 @@ export function dedupeBaseClass(base) {
 						prop.value);
 				}
 			}
+			// Insert a *sorted* dependents array into our propagation 
+			_addDependents(dependents) {
+				const propagation = this[propagationSym];
+				let i = 0;
+
+				dependency:
+				for (let dep of dependents) {
+					// Make sure that the dependent has at least one user
+					if (dep.value === undefined /* User */ || this._userCount.get(dep)) {
+						while (i < propagation.length) {
+							if (propagation[i] === dep) {
+								break dependency;
+							}
+							if (this.depths.get(propagation[i]) > this.depths.get(dep)) {
+								--i;
+								break;
+							}
+							++i;
+						}
+						if (i == propagation.length) {
+							propagation.push(dep);
+						} else {
+							propagation.splice(i, 0, dep);
+						}
+					}
+				}
+			}
+
+			// Consume the propagation list while items are still being added to it.
+			*_propagationIterator(propagation) {
+				while (propagation.length != 0) {
+					let toUpdate = propagation.shift();
+					yield toUpdate;
+				}
+			}
+
+			// Exhaust the propagation list
+			_propagateUpdates() {
+				// If we're fenced then cancel propagating updates.
+				if (this.fenced) {
+					return;
+				}
+				const propagation = this[propagationSym];
+
+				for (let prop of propagationIterator.call(this, propagation)) {
+					if (prop.value) {
+						// Computed Property:
+						prop.revalidate.call(this);
+					} else {
+						// User:
+						prop.func.call(undefined, prop.dependencies.map(name => this[name]));
+					}
+				}
+			}
 			fence() {
 				this.fenced = true;
 			}
