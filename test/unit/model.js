@@ -1,7 +1,8 @@
 "use strict";
 
-import Model, { MalformedGraph, InvalidDefinition, IncompatibleDefinition } from "../src/Model.js";
-import { ShapeDef, RectangleDef, SquareDef, CircleDef } from "./definitions.js";
+import Model from "../../src/model/model.js";
+import { MalformedGraph, InvalidDefinition, IncompatibleDefinition } from "../../src/model/errors.js";
+import { ShapeDef, RectangleDef, SquareDef, CircleDef } from "../common/model_definitions.js";
 
 const assert = chai.assert;
 

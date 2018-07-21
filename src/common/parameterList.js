@@ -1,6 +1,6 @@
 "use strict";
 
-export function parameterList(func) {
+export default function parameterList(func) {
 	if (!(func instanceof Function)) {
 		throw new Error("Expected a function");
 	}

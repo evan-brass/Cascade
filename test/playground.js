@@ -1,5 +1,5 @@
-import View from "../src/View.js";
-import Model from "../src/Model.js";
+import View from "../src/view/view.js";
+import Model from "../src/model/model.js";
 
 const Person = Model({
 	'first': {
@@ -34,7 +34,7 @@ const Post = Model({
 	}
 });
 
-View(, function(html) {
+View(null, function(html) {
 	return html`<article>
 		<header>
 			<

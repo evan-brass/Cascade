@@ -1,4 +1,4 @@
-import { parameterList } from "../src/common.js";
+import parameterList from "../../src/common/parameterList.js";
 
 const assert = chai.assert;
 

@@ -1,6 +1,6 @@
 "use strict";
 
-import { parameterList } from "./common.js";
+import parameterList from "../common/parameterList.js";
 
 
 // View keeps track of the users that have been added to a perticular model and activates/deactivates/unuses them with the lifecycle of the view.

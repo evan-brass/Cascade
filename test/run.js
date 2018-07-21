@@ -1,6 +1,6 @@
-import './model.unit.js';
-import './view.unit.js';
-import './common.unit.js';
+import './unit/model.js';
+import './unit/view.js';
+import './unit/common.js';
 
 mocha.checkLeaks();
 mocha.run();

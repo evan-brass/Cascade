@@ -1,6 +1,6 @@
 "use strict";
 
-import View from "../src/View.js";
+import View from "../../src/view/view.js";
 //import Model from "../src/Model.js";
 
 describe('View', function (html) {
