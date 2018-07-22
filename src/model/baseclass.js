@@ -22,16 +22,14 @@ export function dedupeBaseClass(base) {
 				}
 
 				// MAYBE: Replace with module level symbols?
-				this._cache = new Map();
-				this._userCount = new Map();
 				this.users = new Map();
 
 				// Update the values for all of our fundamental properties
 				for (let prop of this.layers[0]) {
 					// Put our default value into the cache
-					this._cache.set(prop, prop.value instanceof Function ?
+					prop.cachedValue = prop.value instanceof Function ?
 						prop.value.call(this) :
-						prop.value);
+						prop.value;
 				}
 			}
 			// Insert a *sorted* dependents array into our propagation 
@@ -42,12 +40,12 @@ export function dedupeBaseClass(base) {
 				dependency:
 				for (let dep of dependents) {
 					// Make sure that the dependent has at least one user
-					if (dep.value === undefined /* User */ || this._userCount.get(dep)) {
+					if (dep.value === undefined /* User */ || dep.userCount) {
 						while (i < propagation.length) {
 							if (propagation[i] === dep) {
 								break dependency;
 							}
-							if (this.depths.get(propagation[i]) > this.depths.get(dep)) {
+							if (propagation[i].depth > dep.depth) {
 								--i;
 								break;
 							}
@@ -78,7 +76,7 @@ export function dedupeBaseClass(base) {
 				}
 				const propagation = this[propagationSym];
 
-				for (let prop of propagationIterator.call(this, propagation)) {
+				for (let prop of this._propagationIterator(propagation)) {
 					if (prop.value) {
 						// Computed Property:
 						prop.revalidate.call(this);
@@ -95,7 +93,7 @@ export function dedupeBaseClass(base) {
 				this.fenced = false;
 
 				// Propagate the updates since we fenced
-				propagateUpdates.call(this)
+				this._propagateUpdates();
 			}
 			use(deps, func) {
 				// TODO: reduce repetition
@@ -129,7 +127,7 @@ export function dedupeBaseClass(base) {
 					this.fence();
 
 					// WorkingDeps should also probably be a Set, I just don't know how to iterate over a Set and add items to it.
-					let workingDeps = deps.map(name => propertyDefinitions[name]);
+					let workingDeps = deps.map(name => this.proxies[name]);
 					const path = userObj.path;
 					while (workingDeps.length != 0) {
 						// MAYBE: Might not need to do a FIFO loop here which is probably slower.  I think a LIFO loop would be fine with push and pop.
@@ -148,7 +146,7 @@ export function dedupeBaseClass(base) {
 					// TODO: Allow for dependencies on linked objects using a kind of dot notation.  "link.property" or "link.link.property" etc.
 					// Add this user as a dependent on all of its dependencies
 					for (let name of deps) {
-						const dependency = propertyDefinitions[name];
+						const dependency = this.proxies[name];
 						let dotIndex = name.indexOf('.');
 						// Add the userObject as a dependent on the dependency
 						dependency.dependents.push(userObj);
@@ -169,19 +167,19 @@ export function dedupeBaseClass(base) {
 					throw new UseError("Unable to activate a function which is not a user of this model");
 				}
 
-				userDef.path.forEach(def => {
-					let prev = this._userCount.get(def);
+				userDef.path.forEach(proxy => {
+					let prev = proxy.userCount;
 
 					// If this property didn't have a userCount before then it's user count should have been 0
 					if (prev === undefined) {
 						prev = 0;
 					}
 					// If the previous userCount is 0 then we need to revalidate the property because it likely hasn't been updated.
-					if (prev === 0 && def.dependencies.length != 0) {
-						def.revalidate.call(this);
+					if (prev === 0 && proxy.dependencies.length != 0) {
+						proxy.revalidate.call(this);
 					}
 
-					this._userCount.set(def, prev + 1);
+					proxy.userCount = prev + 1;
 				});
 
 				userDef.active = true;

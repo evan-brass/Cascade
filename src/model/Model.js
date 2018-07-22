@@ -12,63 +12,63 @@ import defaultCompare from "./defaultCompare.js";
 // TODO: Parse dependencies directly from the functions.  (Using something like: (new String(func)).match(...))
 // MAYBE: Asyncronous computed properties?  In a way, they already work, you just get a promise at the end rather than some asyncronous propagation.  Is that ok?
 
-function revalidateFunc(def) {
+function revalidateFunc(proxy) {
 	// Figure out how to check if our cached value is different from the new value
-	let equals = def.compare || defaultCompare(def.type);
+	let equals = proxy.compare || defaultCompare(proxy.type);
 	
 	function propagate(func) {
 		return function (...pars) {
 			func.call(this, ...pars);
 
-			this.propagateUpdates();
+			this._propagateUpdates();
 		}
 	}
 	function checkCached(func) {
 		return function (...pars) {
-			let oldVal = this._cache.get(def);
+			let oldVal = proxy.cachedValue;
 
 			let newVal = func.call(this, ...pars);
 
 			// Has the property's value actually changed?
 			if (!equals(newVal, oldVal)) {
 				// Update the cache
-				this._cache.set(def, newVal);
+				proxy.cachedValue = newVal;
 
 				// Add our dependents
-				this.addDependents(def.dependents);
+				this._addDependents(proxy.dependents);
 			}
 		}
 	}
 
 	// Determine what revalidation function to choose.
-	if (def.dependencies.length != 0) {
+	if (proxy.dependencies.length != 0) {
 		// Computed Property:
-		if (def.patch !== undefined) {
+		if (proxy.patch !== undefined) {
 			// If a definition has a patch then it should be called everytime except the first.
 			return checkCached(function () {
-				let oldVal = this._cache.get(def);
+				let oldVal = proxy.cachedValue;
 
-				let inputs = def.dependencies.map(name => this[name]);
+				let inputs = proxy.dependencies.map(name => this[name]);
 				if (oldVal === undefined) {
 					// Cal func if we've never computed this property before.
-					newVal = def.value.apply(this, inputs);
+					newVal = proxy.value.apply(this, inputs);
 				} else {
 					// Otherwise patch the previous value given the new information.
 					// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
 					// MAYBE: Would .call(this, oldval, ...inputs) be better than the concat?
-					newVal = def.patch.apply(this, [oldVal].concat(inputs));
+					newVal = proxy.patch.apply(this, [oldVal].concat(inputs));
 				}
 				return newVal;
 			});
 		} else {
 			return checkCached(function () {
-				let inputs = def.dependencies.map(name => this[name]);
-				return def.value.apply(this, inputs);
+				let inputs = proxy.dependencies.map(name => this[name]);
+				return proxy.value.apply(this, inputs);
 			});
 		}
 	} else {
 		// Simple Property:
-		return propagate(checkCached(() => newVal));
+		return propagate(checkCached((newVal) => newVal));
 	}
 }
 
@@ -84,12 +84,13 @@ function definitionDependencies(def) {
 		throw new InvalidDefinition('A default value or value computing function must be defined on the definition');
 	}
 
-	if (def.value instanceof Function) {
-
-		// Computed property or computed default for a simple property
-		def.dependencies = parameterList(def.value);
-	} else {
-		def.dependencies = [];
+	if (def.dependencies === undefined) {
+		if (def.value instanceof Function) {
+			// Computed property or computed default for a simple property
+			def.dependencies = parameterList(def.value);
+		} else {
+			def.dependencies = [];
+		}
 	}
 }
 
@@ -110,6 +111,7 @@ function proxyFromDef(def) {
 		},
 		set: function (target, prop, value) {
 			localData[prop] = value;
+			return true;
 		}
 	});
 }
@@ -147,7 +149,7 @@ export default function (newPropertyDefinitions, base = Object) {
 
 
 		// Copy our dependencies so that we can cross them off later
-		workDeps.get(prop) = Array.from(prop.dependencies);
+		workDeps.set(prop, Array.from(prop.dependencies));
 
 		// Add the property to our property definitions
 		propertyDefinitions[name] = prop;
@@ -161,7 +163,7 @@ export default function (newPropertyDefinitions, base = Object) {
 
 	// Create the proxies
 	const proxies = {};
-	Model.proxies = proxies;
+	Model.prototype.proxies = proxies;
 	for (let name in propertyDefinitions) {
 		proxies[name] = proxyFromDef(propertyDefinitions[name]);
 	}
@@ -224,23 +226,26 @@ export default function (newPropertyDefinitions, base = Object) {
 		}
 
 		// Remove the properties that we added in this pass from the dependencies of other properties and add those properties as dependents
+		let olds = Array.from(layer.values());
 		for (let key of propWorkingSet) {
-			const prop = propertyDefinitions[key];
-			if (prop.dependencies) {
-				for (let old of layer) {
-					// If the property had the added property as a dependency...
-					let index = prop.workDeps.indexOf(old.name);
-					if (index != -1) {
-						// ...add the property as a dependent of the added property and...
-						old.dependents.push(propertyDefinitions[key]);
-						// ...remove the added property
-						propertyDefinitions[key].workDeps.splice(index, 1);
-					}
+			const prop = proxies[key];
+			let workingDependencies = workDeps.get(prop._def)
+			let i = 0; 
+			while (workingDependencies.length > 0 && i < olds.length) {
+				let old = olds[i];
+				// If the property had the added property as a dependency...
+				let index = workingDependencies.indexOf(old.name);
+				if (index != -1) {
+					// ...add the property as a dependent of the added property and...
+					old.dependents.push(prop);
+					// ...remove the added property
+					workingDependencies.splice(index, 1);
 				}
+				++i;
 			}
 		}
 
-		// Check for circular dependencies (if a full pass of the working prop list finds no properties that can be inserted into the graph then something is wrong).
+		// Check for circular dependencies (if a full pass of the working prop list finds no properties that can be inserted into the graph then something is wrong, almost certainly a circular dependency).
 		if (layer.size == 0) {
 			throw new MalformedGraph(propWorkingSet);
 		}
