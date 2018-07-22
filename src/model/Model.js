@@ -93,6 +93,27 @@ function definitionDependencies(def) {
 	}
 }
 
+function proxyFromDef(def) {
+	let localData = {
+		_def: def,
+		userCount: 0,
+		depth: -1,
+		dependents: []
+	};
+	return new Proxy(def, {
+		get: function (target, prop) {
+			if (localData[prop] !== undefined) {
+				return localData[prop];
+			} else {
+				return target[prop];
+			}
+		},
+		set: function (target, prop, value) {
+			localData[prop] = value;
+		}
+	});
+}
+
 export default function (newPropertyDefinitions, base = Object) {
 	// Fundamental (depth 0) properties have their properties calculated at constructor call time.  That means that it's not a good spot for things that need DOM access.
 
@@ -100,6 +121,7 @@ export default function (newPropertyDefinitions, base = Object) {
 
 	let propertyDefinitions;
 	// Include property definitions from the base class
+	let workDeps = new Map();
 	propertyDefinitions = Object.assign({}, base.propertyDefinitions);
 	for (let name in newPropertyDefinitions) {
 		const oldProp = propertyDefinitions[name];
@@ -125,25 +147,31 @@ export default function (newPropertyDefinitions, base = Object) {
 
 
 		// Copy our dependencies so that we can cross them off later
-		prop.workDeps = Array.from(prop.dependencies);
+		workDeps.get(prop) = Array.from(prop.dependencies);
 
 		// Add the property to our property definitions
 		propertyDefinitions[name] = prop;
 	}
 
+	// This is the class of the model we're creating.
 	const Model = dedupeBaseClass(base);
 	Object.defineProperty(Model, 'propertyDefinitions', {
 		get: () => propertyDefinitions
 	});
 
+	// Create the proxies
+	const proxies = {};
+	Model.proxies = proxies;
+	for (let name in propertyDefinitions) {
+		proxies[name] = proxyFromDef(propertyDefinitions[name]);
+	}
+
 	// Construct the dependency graph
 	let propWorkingSet = Object.keys(propertyDefinitions);
 
 	// Define the layers:
-	Model.prototype.layers = [];
-	const layers = Model.prototype.layers;
-	Model.prototype.depths = new Map();
-	const depths = Model.prototype.depths;
+	const layers = [];
+	Model.prototype.layers = layers;
 
 	// Depth helps sort the updating of properties removing double updates
 	let depth = 0;
@@ -157,32 +185,34 @@ export default function (newPropertyDefinitions, base = Object) {
 		for (let i = 0; i < propWorkingSet.length;) {
 			let name = propWorkingSet[i];
 			// Shortcut directly to the property definition
-			let def = propertyDefinitions[name];
+			let proxy = proxies[name];
+			let def = proxy._def;
 
 			// Is this property one whos dependencies (if any) have already been added
-			if (def.workDeps.length == 0) {
+			if (workDeps.get(def).length == 0) {
 
 				// Add the definition to the layer
-				layer.add(def);
+				layer.add(proxy);
 
 				let setter;
 				if (depth == 0) {
-					setter = revalidateFunc(def);
+					// This is a fundamental property (has no dependencies)
+					setter = revalidateFunc(proxy);
 				} else {
 					// MAYBE: Allow setters for computed properties?
-					def.revalidate = revalidateFunc(def);
+					proxy.revalidate = revalidateFunc(proxy);
 				}
 
 				// Actually define the property
 				Object.defineProperty(Model.prototype, name, {
 					get: function () {
-						return this._cache.get(def);
+						return proxy.cachedValue;
 					},
 					set: setter
 				});
 
-				def.dependents = [];
-				depths.set(def, depth);
+				proxy.dependents = [];
+				proxy.depth = depth;
 
 				// Remove this property from our working set
 				propWorkingSet.splice(i, 1);
