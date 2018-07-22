@@ -5,7 +5,6 @@ import { dedupeBaseClass, propagationSym } from "./baseclass.js";
 import { InternalError, InvalidDefinition, IncompatibleDefinition, MalformedGraph, UseError } from "./errors.js";
 import defaultCompare from "./defaultCompare.js";
 
-
 // TODO: Need a way of declaring what properties you need on linked/collected models to reduce network requests.
 // Figure out how to handle linked models
 // TODO: Need a way of declaring what constructors are available (ex. Rectangle(width, height), Circle(Radius),...)
@@ -121,10 +120,20 @@ export default function (newPropertyDefinitions, base = Object) {
 
 	// TODO: Need to break this into multiple files/sections.  It's unwieldy.
 
-	let propertyDefinitions;
+	let propertyDefinitions = Object.assign({}, base.propertyDefinitions);
+
+	// This is the class of the model we're creating.
+	const Model = dedupeBaseClass(base);
+	Object.defineProperty(Model, 'propertyDefinitions', {
+		get: () => propertyDefinitions
+	});
+
+	// Save the constructors property for later
+	const constructors = newPropertyDefinitions.constructors || [];
+	delete newPropertyDefinitions.constructors;
+
 	// Include property definitions from the base class
 	let workDeps = new Map();
-	propertyDefinitions = Object.assign({}, base.propertyDefinitions);
 	for (let name in newPropertyDefinitions) {
 		const oldProp = propertyDefinitions[name];
 		const prop = newPropertyDefinitions[name];
@@ -147,19 +156,12 @@ export default function (newPropertyDefinitions, base = Object) {
 			}
 		}
 
-
 		// Copy our dependencies so that we can cross them off later
 		workDeps.set(prop, Array.from(prop.dependencies));
 
 		// Add the property to our property definitions
 		propertyDefinitions[name] = prop;
 	}
-
-	// This is the class of the model we're creating.
-	const Model = dedupeBaseClass(base);
-	Object.defineProperty(Model, 'propertyDefinitions', {
-		get: () => propertyDefinitions
-	});
 
 	// Create the proxies
 	const proxies = {};
@@ -192,7 +194,6 @@ export default function (newPropertyDefinitions, base = Object) {
 
 			// Is this property one whos dependencies (if any) have already been added
 			if (workDeps.get(def).length == 0) {
-
 				// Add the definition to the layer
 				layer.add(proxy);
 
@@ -251,6 +252,41 @@ export default function (newPropertyDefinitions, base = Object) {
 		}
 
 		++depth;
+	}
+
+	// Apply the constructors
+	if (constructors) {
+		// Convert from names to proxies
+		Model.prototype.constructorDefinitions = constructors.map(constr => {
+			constr.map(name => {
+				if (!(name in proxies)) {
+					throw new Error(`In a constructor definition: the property ${name} is not defined`);
+				}
+				return proxies[name]
+			});
+		});
+
+		// Verify that all the constructors have unique signatures (types)
+		let workingSet = Array.from(Model.prototype.constructorDefinitions);
+		while (workingSet.length != 0) {
+			let test = workingSet.shift();
+			otherLoop:
+			for (let other of workingSet) {
+				if (test.length == other.length) {
+					for (let i = 0; i < test.length; ++i) {
+						if (test[i].type != other[i].type) {
+							continue otherLoop;
+						}
+					}
+					function format(ar) {
+						return ar.map(p => `${p.name}(${p.type})`).join(', ');
+					}
+					throw new Error(`At least two constructor definitions have the same format (number of parameters and parameter types): ${format(test)} and ${format(other)}`);
+				}
+			}
+		}
+	} else {
+		Model.prototype.constructorDefinitions = [];
 	}
 
 	// Return the model we've constructed

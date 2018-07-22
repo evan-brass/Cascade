@@ -2,19 +2,45 @@
 
 export const propagationSym = Symbol("Cascade: Property update propagation list");
 
+function constructorFunc(self, parameters) {
+	constructorLoop:
+	for (let constructor of self.constructorDefinitions) {
+		let found = true;
+		if (constructor.length == parameters.length) {
+			for (let i = 0; i < constructor.length; ++i) {
+				if (!(parameters[i] instanceof constructor[i].type)) {
+					found = false
+					continue constructorLoop;
+				}
+			}
+			for (let i = 0; i < constructor.length; ++i) {
+				let prop = constructor[i];
+				self[prop.name] = new (prop.type)(parameter[i]);
+			}
+			return;
+		}
+	}
+}
+
 export function dedupeBaseClass(base) {
 	if (base.propertyDefinitions !== undefined) {
 		// The main BaseModel must already be in the prototype chain
 		return class SubModel extends base {
-			constructor() {
+			constructor(...parameters) {
 				super();
+
+				this.fence();
+				constructorFunc(this, parameters);
+				this.unfence();
 			}
 		};
 	} else {
 		// The BaseModel isn't in the prototype chain yet
 		return class BaseModel extends base {
-			constructor() {
+			constructor(...parameters) {
 				super();
+
+				this.fence();
 
 				// Allow extending a model into a new model.  Not sure if this is useful yet.
 				if (!this[propagationSym]) {
@@ -31,6 +57,9 @@ export function dedupeBaseClass(base) {
 						prop.value.call(this) :
 						prop.value;
 				}
+
+				constructorFunc(this, parameters);
+				this.unfence();
 			}
 			// Insert a *sorted* dependents array into our propagation 
 			_addDependents(dependents) {

@@ -8,7 +8,6 @@ const assert = chai.assert;
 
 describe("Model", function () {
 	describe("Graph Errors", function () {
-
 		it("Throws for circular dependencies", function () {
 			assert.throws(function () {
 				const circular = Model({
@@ -75,6 +74,9 @@ describe("Model", function () {
 
 		before('Create Model', function () {
 			Regular = Model({
+				'constructors': [
+					['side']
+				],
 				'side': {
 					type: Number,
 					value: 0
@@ -87,7 +89,7 @@ describe("Model", function () {
 				},
 			});
 		});
-		describe('Constructor/Model', function () {
+		describe('Model', function () {
 			it('Has a propertyDefinitions property/getter', function () {
 				assert.property(Regular, 'propertyDefinitions');
 			});
