@@ -11,6 +11,10 @@ import defaultCompare from "./defaultCompare.js";
 // TODO: Parse dependencies directly from the functions.  (Using something like: (new String(func)).match(...))
 // MAYBE: Asyncronous computed properties?  In a way, they already work, you just get a promise at the end rather than some asyncronous propagation.  Is that ok?
 
+// TODO: Patch should return a boolean determining if the value changed because patch update the value in place and compare might not be able to determine what changed.
+// MAYBE: Have a better way of telling dependents what has changed rather than just that something has changed.
+// TODO: Need userCount to be instance level not model level.
+
 function revalidateFunc(proxy) {
 	// Figure out how to check if our cached value is different from the new value
 	let equals = proxy.compare || defaultCompare(proxy.type);
@@ -129,7 +133,7 @@ export default function (newPropertyDefinitions, base = Object) {
 	});
 
 	// Save the constructors property for later
-	const constructors = newPropertyDefinitions.constructors || [];
+	const constructors = newPropertyDefinitions.constructors;
 	delete newPropertyDefinitions.constructors;
 
 	// Include property definitions from the base class
@@ -258,11 +262,11 @@ export default function (newPropertyDefinitions, base = Object) {
 	if (constructors) {
 		// Convert from names to proxies
 		Model.prototype.constructorDefinitions = constructors.map(constr => {
-			constr.map(name => {
+			return constr.map(name => {
 				if (!(name in proxies)) {
 					throw new Error(`In a constructor definition: the property ${name} is not defined`);
 				}
-				return proxies[name]
+				return proxies[name];
 			});
 		});
 
@@ -281,12 +285,12 @@ export default function (newPropertyDefinitions, base = Object) {
 					function format(ar) {
 						return ar.map(p => `${p.name}(${p.type})`).join(', ');
 					}
-					throw new Error(`At least two constructor definitions have the same format (number of parameters and parameter types): ${format(test)} and ${format(other)}`);
+					throw new Error(`At least two constructor definitions have the same format (number of parameters and parameter types) and are thus ambiguous`);
 				}
 			}
 		}
 	} else {
-		Model.prototype.constructorDefinitions = [];
+		Model.prototype.constructorDefinitions = [[]];
 	}
 
 	// Return the model we've constructed

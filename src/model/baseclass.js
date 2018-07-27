@@ -8,18 +8,19 @@ function constructorFunc(self, parameters) {
 		let found = true;
 		if (constructor.length == parameters.length) {
 			for (let i = 0; i < constructor.length; ++i) {
-				if (!(parameters[i] instanceof constructor[i].type)) {
+				if (!(parameters[i].constructor === constructor[i].type)) {
 					found = false
 					continue constructorLoop;
 				}
 			}
 			for (let i = 0; i < constructor.length; ++i) {
 				let prop = constructor[i];
-				self[prop.name] = new (prop.type)(parameter[i]);
+				self[prop.name] = parameters[i];
 			}
 			return;
 		}
 	}
+	throw new Error(`Parameters didn't match any of the defined constructors`);
 }
 
 export function dedupeBaseClass(base) {
@@ -128,19 +129,19 @@ export function dedupeBaseClass(base) {
 				// TODO: reduce repetition
 				let userDef = this.users.get(func)
 				if (userDef !== undefined) {
-					userDef.path.forEach(def => {
-						let prev = this._userCount.get(def);
+					userDef.path.forEach(prox => {
+						let prev = prox.userCount;
 
 						// If this property didn't have a userCount before then it's user count should have been 0
 						if (prev === undefined) {
 							prev = 0;
 						}
 						// If the previous userCount is 0 then we need to revalidate the property because it likely hasn't been updated.
-						if (prev === 0 && def.dependencies != 0) {
-							def.revalidate.call(this);
+						if (prev === 0 && prox.dependencies != 0) {
+							prox.revalidate.call(this);
 						}
 
-						this._userCount.set(def, prev + 1);
+						prox.userCount = prev + 1;
 					});
 				} else {
 					// TODO: Check if we've already been called with this func (If so, we just need to increment the userCounts
@@ -156,13 +157,19 @@ export function dedupeBaseClass(base) {
 					this.fence();
 
 					// WorkingDeps should also probably be a Set, I just don't know how to iterate over a Set and add items to it.
-					let workingDeps = deps.map(name => this.proxies[name]);
+					let workingDeps = deps.map(name => {
+						if (name in this.proxies) {
+							return this.proxies[name];
+						} else {
+							throw new Error(`Can't create a user that depends on a property that this model doesn't have`);
+						}
+					});
 					const path = userObj.path;
 					while (workingDeps.length != 0) {
 						// MAYBE: Might not need to do a FIFO loop here which is probably slower.  I think a LIFO loop would be fine with push and pop.
 						const workingDef = workingDeps.shift();
 						path.add(workingDef);
-						workingDeps.concat(workingDef.dependencies);
+						workingDeps = workingDeps.concat(workingDef.dependencies);
 					}
 
 					// Actually increment the _userCount
@@ -176,7 +183,6 @@ export function dedupeBaseClass(base) {
 					// Add this user as a dependent on all of its dependencies
 					for (let name of deps) {
 						const dependency = this.proxies[name];
-						let dotIndex = name.indexOf('.');
 						// Add the userObject as a dependent on the dependency
 						dependency.dependents.push(userObj);
 					}
@@ -224,8 +230,8 @@ export function dedupeBaseClass(base) {
 					throw new UseError("Unable to deactivate a function which is not a user of this model");
 				}
 
-				userDef.path.forEach(def => {
-					let prev = this._userCount.get(def);
+				userDef.path.forEach(prox => {
+					let prev = prox.userCount;
 
 					if (prev === undefined) {
 						throw new InternalError("User Count Is Undefined");
@@ -234,7 +240,7 @@ export function dedupeBaseClass(base) {
 						throw new InternalError("User Count Is Zero");
 					}
 
-					this._userCount.set(def, prev - 1);
+					prox.userCount = prev - 1;
 				});
 
 				userDef.active = false;

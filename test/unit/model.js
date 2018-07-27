@@ -7,6 +7,7 @@ import { ShapeDef, RectangleDef, SquareDef, CircleDef } from "../common/model_de
 const assert = chai.assert;
 
 describe("Model", function () {
+	this.timeout(0);
 	describe("Graph Errors", function () {
 		it("Throws for circular dependencies", function () {
 			assert.throws(function () {
@@ -69,13 +70,76 @@ describe("Model", function () {
 			}, InvalidDefinition);
 		});
 	});
+
+	describe('Constructors', function () {
+		let Test;
+		before('Construct the constructor test model', function () {
+			Test = Model({
+				'constructors': [
+					['num1', 'num2', 'str'],
+					['num1'],
+					[]
+				],
+				'num1': {
+					type: Number,
+					value: 5
+				},
+				'num2': {
+					type: Number,
+					value: 8
+				},
+				'str': {
+					type: String,
+					value: 'Hello, World!'
+				}
+			});
+		});
+		it('Throws for ambigous constructors', function () {
+			assert.throws(() => {
+				let a = Model({
+					'constructors': [
+						['num1'],
+						['num2']
+					],
+					'num1': {
+						type: Number,
+						value: 5
+					},
+					'num2': {
+						type: Number,
+						value: 6
+					}
+				});
+			});
+		});
+		it(`Throws for parameters that don't match any defined constructor`, function () {
+			assert.throws(() => {
+				let a = new Test('string');
+			});
+		});
+		it('Parameters set by constructor have their proper value after construction', function () {
+			let a = new Test(55, 66, 'hi');
+			assert.strictEqual(a.num1, 55);
+			assert.strictEqual(a.num2, 66);
+			assert.strictEqual(a.str, 'hi');
+		});
+		it('Parameters not set by the constructor have their default values', function () {
+			let a = new Test(77);
+			assert.strictEqual(a.num1, 77);
+			assert.strictEqual(a.num2, 8);
+			assert.strictEqual(a.str, 'Hello, World!');
+		});
+		it.skip('TODO: Same tests as above except on both the base model and sub model', function () { });
+		it.skip('TODO: Model definition without constructors should have a default constructor with no parameters', function () { });
+	});
 	describe('Basic Model: Square', function () {
 		let Regular;
 
 		before('Create Model', function () {
 			Regular = Model({
 				'constructors': [
-					['side']
+					['side'],
+					[]
 				],
 				'side': {
 					type: Number,

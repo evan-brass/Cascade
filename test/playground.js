@@ -2,6 +2,10 @@ import View from "../src/view/view.js";
 import Model from "../src/model/model.js";
 
 const Person = Model({
+	'constructors': [
+		['first', 'last', 'age'],
+		[]
+	],
 	'first': {
 		type: String,
 		value: ''
@@ -16,6 +20,11 @@ const Person = Model({
 	}
 });
 const Post = Model({
+	'constructors': [
+		['title', 'contents'],
+		['author', 'title', 'contents', 'created'],
+		[]
+	],
 	'title': {
 		type: String,
 		value: 'untitled'
@@ -24,7 +33,7 @@ const Post = Model({
 		type: Person,
 		value: null
 	},
-	'created-date': {
+	'created': {
 		type: Date,
 		value: null
 	},
@@ -34,11 +43,25 @@ const Post = Model({
 	}
 });
 
-View(null, function(html) {
-	return html`<article>
+let inst = new Post(new Person('Evan', 'Brass', 20), 'Title', 'This is the working?contents', new Date())
+//let inst = new Post('TITLE', 'CONTENTS!');
+
+console.log(inst.author, inst.title, inst.contents, inst.created);
+window.inst = inst;
+
+setTimeout(() => {
+	inst.title = "New Title!";
+}, 5000);
+
+let viewResult = View(inst, function (one, html) {
+	return html`<article ${created =>
+		(Date.now() - created.getTime() < (24 * 60 * 60 * 1000)) ? 'new' : ''}>
 		<header>
-			<
+			<h1>${one('title')} &mdash; ${author => author.first}</h1>
 		</header>
-		This number is: ${80 + 5}
-	</article>${() => "happy"}`;
-})
+		${one('contents')}
+	</article>`;
+});
+
+console.log(viewResult);
+document.getElementById('playground').appendChild(viewResult.fragment);

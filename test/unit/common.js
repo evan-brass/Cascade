@@ -48,6 +48,7 @@ describe('Common', function () {
 				(x) => 2 * x,
 				  (x)    => 2 * x,
 				x => 2 * x,
+				multi => 2 * multi,
 				() => { console.log(''); }
 			];
 			let correct = [
@@ -55,6 +56,7 @@ describe('Common', function () {
 				['x'],
 				['x'],
 				['x'],
+				['multi'],
 				[]
 			];
 			funcs.forEach((func, idx) => {

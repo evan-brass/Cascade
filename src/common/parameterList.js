@@ -7,7 +7,7 @@ export default function parameterList(func) {
 
 	// TODO: Give an error for default parameter values and destructuring.
 	let [, normal, specialArrow] = (new String(func))
-		.match(/^[\w\s]*\(([^)]*)\)|^(\w?)/);
+		.match(/^[\w\s]*\(([^)]*)\)|^(\w+)\s*=>/);
 	if (specialArrow) {
 		return [specialArrow];
 	} else {
