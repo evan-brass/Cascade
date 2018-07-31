@@ -1,5 +1,7 @@
 "use strict";
 
+// TODO: Allow updating more things and better: Assigning multiple attributes, Updating a text location with a dom node or a document fragment or the result from an html, using classlist for setting class attribute, setting attributes preserves any static content that appeared before the dynamic part, 
+
 export default function updater(location, func) {
 	const type = location.type;
 	let node = location.node;

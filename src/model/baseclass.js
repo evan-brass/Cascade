@@ -1,38 +1,14 @@
 "use strict";
 
-export const propagationSym = Symbol("Cascade: Property update propagation list");
-
-function constructorFunc(self, parameters) {
-	constructorLoop:
-	for (let constructor of self.constructorDefinitions) {
-		let found = true;
-		if (constructor.length == parameters.length) {
-			for (let i = 0; i < constructor.length; ++i) {
-				if (!(parameters[i].constructor === constructor[i].type)) {
-					found = false
-					continue constructorLoop;
-				}
-			}
-			for (let i = 0; i < constructor.length; ++i) {
-				let prop = constructor[i];
-				self[prop.name] = parameters[i];
-			}
-			return;
-		}
-	}
-	throw new Error(`Parameters didn't match any of the defined constructors`);
-}
+// MAYBE: Use a different data structure then an array for the propagation list
+// TODO: Decide how views will be able to access data on linked models.
 
 export function dedupeBaseClass(base) {
 	if (base.propertyDefinitions !== undefined) {
 		// The main BaseModel must already be in the prototype chain
 		return class SubModel extends base {
 			constructor(...parameters) {
-				super();
-
-				this.fence();
-				constructorFunc(this, parameters);
-				this.unfence();
+				super(...parameters);
 			}
 		};
 	} else {
@@ -41,57 +17,99 @@ export function dedupeBaseClass(base) {
 			constructor(...parameters) {
 				super();
 
-				this.fence();
+				// Holds the properties which still need to be updated
+				this.propagationList = [];
 
-				// Allow extending a model into a new model.  Not sure if this is useful yet.
-				if (!this[propagationSym]) {
-					this[propagationSym] = [];
-				}
-
+				// Create instance data objects for all of our properties
 				// MAYBE: Replace with module level symbols?
-				this.users = new Map();
+				this.instanceData = new Map();
+				for (let layer of this.layers) {
+					for (let prop of layer) {
+						let localData = {
+							userCount: 0,
+							users: [],
+							cachedValue: undefined
+						};
 
-				// Update the values for all of our fundamental properties
-				for (let prop of this.layers[0]) {
-					// Put our default value into the cache
-					prop.cachedValue = prop.value instanceof Function ?
-						prop.value.call(this) :
-						prop.value;
+						// MAYBE: Pull this up above, so it isn't run every single time.
+						if (layer == this.layers[0]) {
+							localData.cachedValue = prop.value instanceof Function ?
+								prop.value() :
+								prop.value;
+						}
+						this.instanceData.set(prop, localData);
+					}
 				}
 
-				constructorFunc(this, parameters);
-				this.unfence();
+				// Run any constructors defined for this model
+				this._runConstructor(parameters);
 			}
-			// Insert a *sorted* dependents array into our propagation 
-			_addDependents(dependents) {
-				const propagation = this[propagationSym];
-				let i = 0;
-
-				dependency:
-				for (let dep of dependents) {
-					// Make sure that the dependent has at least one user
-					if (dep.value === undefined /* User */ || dep.userCount) {
-						while (i < propagation.length) {
-							if (propagation[i] === dep) {
-								break dependency;
+			_runConstructor(parameters) {
+				constructorLoop:
+				for (let constructor of this.constructorDefinitions) {
+					// Check all the constructors
+					if (constructor.length == parameters.length) {
+						// See if the types of their parameters match the parameters we were passed.
+						for (let i = 0; i < constructor.length; ++i) {
+							// Was going to use instanceof here.  I can't remember why I switched to .constructor other than that I tried instanceof and it didn't work.
+							if (!(parameters[i].constructor === constructor[i].type)) {
+								continue constructorLoop;
 							}
-							if (propagation[i].depth > dep.depth) {
-								--i;
-								break;
-							}
-							++i;
 						}
-						if (i == propagation.length) {
-							propagation.push(dep);
-						} else {
-							propagation.splice(i, 0, dep);
+						// About to set all the properties from this constructor
+						this.fence();
+						for (let i = 0; i < constructor.length; ++i) {
+							let prop = constructor[i];
+							// Run the setter for all of our parameters
+							self[prop.name] = parameters[i];
 						}
+						// Finished.
+						this.unfence();
+						return;
 					}
+				}
+				throw new Error(`Parameters didn't match any of the defined constructors`);
+			}
+			// Insert a *sorted* dependents array into our propagation list
+			_addDependents(node) {
+				const propagation = this.propagationList;
+				const nodeData = this.instanceData.get(node);
+
+				let i = 0;
+				function insert(item) {
+					while (i < propagation.length) {
+						if (propagation[i] === dep) {
+							continue dependency;
+						}
+						if (propagation[i].depth > dep.depth) {
+							--i;
+							break;
+						}
+						++i;
+					}
+					if (i == propagation.length) {
+						propagation.push(dep);
+					} else {
+						propagation.splice(i, 0, dep);
+					}
+				}
+				// Add any dependent properties
+				dependency:
+				for (let dep of node.dependents) {
+					// Make sure that the dependent has at least one user
+					if (nodeData.userCount) {
+						insert(dep);
+					}
+				}
+				// Add any dependent users
+				for (let user of localData.users) {
+					insert(user);
 				}
 			}
 
 			// Consume the propagation list while items are still being added to it.
-			*_propagationIterator(propagation) {
+			*_propagationIterator() {
+				const propagation = this.propagationList;
 				while (propagation.length != 0) {
 					let toUpdate = propagation.shift();
 					yield toUpdate;
@@ -104,47 +122,34 @@ export function dedupeBaseClass(base) {
 				if (this.fenced) {
 					return;
 				}
-				const propagation = this[propagationSym];
 
-				for (let prop of this._propagationIterator(propagation)) {
+				for (let prop of this._propagationIterator()) {
 					if (prop.value) {
 						// Computed Property:
 						prop.revalidate.call(this);
 					} else {
 						// User:
-						prop.func.call(undefined, prop.dependencies.map(name => this[name]));
+						prop.func(...(prop.dependencies.map(name => this[name])));
 					}
 				}
 			}
 			fence() {
-				this.fenced = true;
+				++this.fenced;
 			}
 			unfence() {
-				this.fenced = false;
+				--this.fenced;
 
 				// Propagate the updates since we fenced
-				this._propagateUpdates();
+				if (this.fenced == 0) {
+					this._propagateUpdates();
+				}
 			}
 			use(deps, func) {
 				// TODO: reduce repetition
 				let userDef = this.users.get(func)
 				if (userDef !== undefined) {
-					userDef.path.forEach(prox => {
-						let prev = prox.userCount;
-
-						// If this property didn't have a userCount before then it's user count should have been 0
-						if (prev === undefined) {
-							prev = 0;
-						}
-						// If the previous userCount is 0 then we need to revalidate the property because it likely hasn't been updated.
-						if (prev === 0 && prox.dependencies != 0) {
-							prox.revalidate.call(this);
-						}
-
-						prox.userCount = prev + 1;
-					});
+					this.activate(func);
 				} else {
-					// TODO: Check if we've already been called with this func (If so, we just need to increment the userCounts
 					let userObj = {
 						func: func,
 						dependencies: deps,
@@ -166,25 +171,17 @@ export function dedupeBaseClass(base) {
 					});
 					const path = userObj.path;
 					while (workingDeps.length != 0) {
-						// MAYBE: Might not need to do a FIFO loop here which is probably slower.  I think a LIFO loop would be fine with push and pop.
-						const workingDef = workingDeps.shift();
-						path.add(workingDef);
-						workingDeps = workingDeps.concat(workingDef.dependencies);
+						const node = workingDeps.pop();
+						path.add(node);
+						workingDeps = workingDeps.concat(node.dependencies);
 					}
 
-					// Actually increment the _userCount
+					// Actually increment increment the user count.
 					this.activate(func);
 
-					// All clear (Update everything we need before adding ourself, that way we're not updated as part of their propagations, only future ones.)
-					this.unfence();
-
-					// MAYBE: Also allow dots for computed properties?  Propabably not.  Computed properties should be computed exclusively from fundamental properties.
-					// TODO: Allow for dependencies on linked objects using a kind of dot notation.  "link.property" or "link.link.property" etc.
-					// Add this user as a dependent on all of its dependencies
+					// Add this user into it's dependencies' user lists
 					for (let name of deps) {
-						const dependency = this.proxies[name];
-						// Add the userObject as a dependent on the dependency
-						dependency.dependents.push(userObj);
+						this.instanceData.get(this.nodes[name]).users.push(userObj);
 					}
 
 					// Actually call the function
@@ -202,7 +199,9 @@ export function dedupeBaseClass(base) {
 					throw new UseError("Unable to activate a function which is not a user of this model");
 				}
 
-				userDef.path.forEach(proxy => {
+				this.fence();
+				for (let property of userDef.path) {
+					const instanceData = this.instanceData.get(property);
 					let prev = proxy.userCount;
 
 					// If this property didn't have a userCount before then it's user count should have been 0
@@ -210,12 +209,13 @@ export function dedupeBaseClass(base) {
 						prev = 0;
 					}
 					// If the previous userCount is 0 then we need to revalidate the property because it likely hasn't been updated.
-					if (prev === 0 && proxy.dependencies.length != 0) {
-						proxy.revalidate.call(this);
+					if (prev === 0 && property.dependencies.length != 0) {
+						property.revalidate.call(this);
 					}
 
-					proxy.userCount = prev + 1;
-				});
+					instanceData.userCount = prev + 1;
+				}
+				this.unfence();
 
 				userDef.active = true;
 			}
