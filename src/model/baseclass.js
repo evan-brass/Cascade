@@ -132,7 +132,7 @@ export function dedupeBaseClass(base) {
 					}
 				}
 				// Add any dependent users
-				for (let user of localData.users) {
+				for (let user of nodeData.users) {
 					insert(user);
 				}
 			}
@@ -153,12 +153,13 @@ export function dedupeBaseClass(base) {
 					return;
 				}
 
-				for (let node of this._propagationIterator()) {
-					if (node.value) {
-						this.revalidate(node);
+				for (let obj of this._propagationIterator()) {
+					if (obj.value) {
+						// obj is a node
+						this.revalidate(obj);
 					} else {
-						// User:
-						node.func(...(node.dependencies.map(name => this[name])));
+						// obj is a user
+						obj.func(...(obj.dependencies.map(name => this[name])));
 					}
 				}
 			}
@@ -198,6 +199,7 @@ export function dedupeBaseClass(base) {
 							throw new Error(`Can't create a user that depends on a property that this model doesn't have.`);
 						}
 					});
+					// MAYBE: We technically don't have to only increment the usercount once, the only thing we care about is that we can decrement it the same that we incremented it when we deactivate.
 					const path = userObj.path;
 					while (workingDeps.length != 0) {
 						const node = workingDeps.pop();
