@@ -15,83 +15,17 @@ import defaultCompare from "./defaultCompare.js";
 // MAYBE: Have a better way of telling dependents what has changed rather than just that something has changed.
 // TODO: Need userCount to be instance level not model level.
 
-function revalidateFunc(node) {
-	// Figure out how to check if our cached value is different from the new value
-	let equals = node.compare || defaultCompare(node.type);
-	let instanceData;
-	
-	function propagate(func) {
-		return function (...pars) {
-			func.call(this, ...pars);
-
-			this._propagateUpdates();
-		}
-	}
-	function checkCached(func) {
-		return function (...pars) {
-			let oldVal = node.cachedValue;
-
-			let newVal = func.call(this, ...pars);
-
-			// Has the property's value actually changed?
-			if (!equals(newVal, oldVal)) {
-				// Update the cache
-				node.cachedValue = newVal;
-
-				// Add our dependents
-				this._addDependents(node.dependents);
-			}
-		}
-	}
-
-	// Determine what revalidation function to choose.
-	if (node.dependencies.length != 0) {
-		// Computed Property:
-		if (node.patch !== undefined) {
-			// If a definition has a patch then it should be called everytime except the first.
-			return checkCached(function () {
-				let oldVal = node.cachedValue;
-
-				let inputs = node.dependencies.map(name => this[name]);
-				if (oldVal === undefined) {
-					// Cal func if we've never computed this property before.
-					newVal = node.value.apply(this, inputs);
-				} else {
-					// Otherwise patch the previous value given the new information.
-					// While func should be a pure function, patch is not necessarily.  For that reason we can store (locally in a closure of the patch function) the previous values that func/patch was given or do whatever we want.  Just be careful/considerate.
-					// MAYBE: Would .call(this, oldval, ...inputs) be better than the concat?
-					newVal = node.patch(oldVal, ...inputs);
-				}
-				return newVal;
-			});
-		} else {
-			return checkCached(function () {
-				let inputs = node.dependencies.map(name => this[name]);
-				return node.value.apply(this, inputs);
-			});
-		}
-	} else {
-		// Simple Property:
-		return propagate(checkCached((newVal) => newVal));
-	}
-}
-
 function definitionDependencies(def) {
 	// Handle errors
 	if (def === undefined) {
 		throw new InvalidDefinition('Property Definition missing');
 	}
-	if (def.type === undefined) {
-		throw new InvalidDefinition('Currently, definitions must have a type specified, even on simple properties');
-	}
-	if (def.value === undefined) {
-		throw new InvalidDefinition('A default value or value computing function must be defined on the definition');
-	}
+	
 
 	if (def.dependencies === undefined) {
 		if (def.value instanceof Function) {
 			// Computed property or empty as default for a simple property
-			def.dependencies = parameterList(def.value);
+			def.dependencies = ;
 		} else {
 			def.dependencies = [];
 		}
@@ -99,21 +33,16 @@ function definitionDependencies(def) {
 }
 
 function nodeFromDefinition(definition) {
-	// These properties are the ones that we want to reflect from the definition.
-	const EXPOSED = ['name', 'type', 'value', 'compare', 'patch', 'dependencies'];
-
-	let node = {
-		_def: definition,
-		depth: -1,
-		dependents: []
-	};
-	for (let name of EXPOSED) {
-		Object.defineProperty(node, name,  {
-			get: function () {
-				return definition[name];
-			}
-		});
-	}
+	const node = Object.create(definition, {
+		depth: {
+			value: -1,
+			writable: true
+		},
+		dependents: {
+			value: [],
+			writable: false
+		}
+	});
 	return node;
 }
 
@@ -143,7 +72,7 @@ export default function (newPropertyDefinitions, base = Object) {
 
 				next();
 
-				// Convert from names to proxies
+				// Convert from names to nodes
 				Model.prototype.constructorDefinitions = constructors.map(constr => {
 					return constr.map(name => {
 						if (!(name in nodes)) {
@@ -184,29 +113,44 @@ export default function (newPropertyDefinitions, base = Object) {
 			propertyDefinitions = Object.assign({}, base.propertyDefinitions);
 
 			for (let name in newPropertyDefinitions) {
-				const oldProp = propertyDefinitions[name];
-				const prop = newPropertyDefinitions[name];
-
-				// Set the name of the property.
-				prop.name = name;
+				const parentDefinition = propertyDefinitions[name];
+				const newDefinition = newPropertyDefinitions[name];
 
 				// Make sure that the property definition that the type and kind of any overriding definitions match that of the existing definition.
-				if (oldProp !== undefined && oldProp.type !== prop.type) {
+				if (parentDefinition !== undefined && parentDefinition.type !== newDefinition.type) {
 					throw new IncompatibleDefinition(`The definition for ${name} doesn't match the definition on the base-model`);
 				}
+				
+				// Check if the definition is malformed:
+				if (!(newDefinition instanceof Object)) {
+					throw new InvalidDefinition("A definition must be an object.  Later you may be able to use a simple initializer, but that hasn't been implemented yet");
+				}
+				if (newDefinition.type === undefined) {
+					throw new InvalidDefinition('Currently, definitions must have a type specified, even on simple properties');
+				}
+				if (newDefinition.value === undefined) {
+					throw new InvalidDefinition('A default value or value computing function must be defined on the definition');
+				}
 
-				// Add the definition's dependencies
-				definitionDependencies(prop);
+				// Make sure that all the fields that are optional are filled.
+				const Defaults = {
+					name,
+					dependencies: (newDefinition.value instanceof Function) ? 
+						parameterList(newDefinition.value) :
+						[],
+					compare: defaultCompare(newDefinition.type)
+				};
+				let definition = Object.assign(Defaults, newPropertyDefinitions);
 
 				// Make sure that all of the dependencies exist in the property definitions
-				for (let dep of prop.dependencies) {
+				for (let dep of newDefinition.dependencies) {
 					if (propertyDefinitions[dep] === undefined && newPropertyDefinitions[dep] === undefined) {
 						throw new InvalidDefinition(`There is no property definition for ${dep}. Check if it is mistyped`);
 					}
 				}
 
 				// Add the property to our property definitions
-				propertyDefinitions[name] = prop;
+				propertyDefinitions[name] = newDefinition;
 			}
 
 			next();
@@ -248,7 +192,7 @@ export default function (newPropertyDefinitions, base = Object) {
 					let name = propWorkingSet[i];
 					// Shortcut directly to the property definition
 					let node = nodes[name];
-					let def = node._def;
+					let def = Object.getPrototypeOf(node);
 
 					// Is this property one whos dependencies (if any) have already been added
 					if (workDeps.get(def).length == 0) {
@@ -258,7 +202,7 @@ export default function (newPropertyDefinitions, base = Object) {
 						let setter;
 						if (depth == 0) {
 							// This is a fundamental property (has no dependencies)
-							setter = revalidateFunc(node);
+							setter = Model._setter(node);
 						} else {
 							// MAYBE: Allow setters for computed properties?
 							node.revalidate = revalidateFunc(node);
@@ -272,7 +216,6 @@ export default function (newPropertyDefinitions, base = Object) {
 							set: setter
 						});
 
-						node.dependents = [];
 						node.depth = depth;
 
 						// Remove this property from our working set
@@ -287,7 +230,7 @@ export default function (newPropertyDefinitions, base = Object) {
 				// Remove the properties that we added in this pass from the dependencies of other properties and add those properties as dependents
 				let olds = Array.from(layer.values());
 				for (let key of propWorkingSet) {
-					const prop = proxies[key];
+					const prop = nodes[key];
 					let workingDependencies = workDeps.get(prop._def)
 					let i = 0;
 					while (workingDependencies.length > 0 && i < olds.length) {

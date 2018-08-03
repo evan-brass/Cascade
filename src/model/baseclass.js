@@ -6,6 +6,7 @@
 export function dedupeBaseClass(base) {
 	if (base.propertyDefinitions !== undefined) {
 		// The main BaseModel must already be in the prototype chain
+		// MAYBE: This doesn't need to be a class decleration.  Something better?
 		return class SubModel extends base {
 			constructor(...parameters) {
 				super(...parameters);
@@ -18,7 +19,7 @@ export function dedupeBaseClass(base) {
 				super();
 
 				// Holds the properties which still need to be updated
-				this.propagationList = [];
+				this._propagationList = [];
 
 				// Create instance data objects for all of our properties
 				// MAYBE: Replace with module level symbols?
@@ -43,6 +44,16 @@ export function dedupeBaseClass(base) {
 
 				// Run any constructors defined for this model
 				this._runConstructor(parameters);
+			}
+			static _setter(node) {
+				return function (newValue) {
+					if (!node.compare(node.cachedValue, newValue)) {
+						node.cachedValue = newValue;
+						this._addDependents(node);
+
+						this._propagateUpdates()
+					}
+				}
 			}
 			_runConstructor(parameters) {
 				constructorLoop:
@@ -70,27 +81,46 @@ export function dedupeBaseClass(base) {
 				}
 				throw new Error(`Parameters didn't match any of the defined constructors`);
 			}
+			_revalidate(node) {
+				// MAYBE: (though almost certainly) Extract the logic into higher order functions as an optimization
+				// TODO: I don't like using ".call(this"  I either want revalidate to be a method on the base class or I want something else.
+				// Figure out how to check if our cached value is different from the new value
+				let instanceData = this.instanceData.get(node);
+
+				let oldVal = node.cachedValue;
+				// MAYBE: Offer a patch function?
+				let newVal = node.value(...(node.dependencies.map(name => this[name])));
+
+				// Has the property's value actually changed? 
+				if (!node.compare(newVal, oldVal)) {
+					// Update the cache 
+					node.cachedValue = newVal;
+
+					// Add our dependents 
+					this._addDependents(node.dependents);
+				}
+			}
 			// Insert a *sorted* dependents array into our propagation list
 			_addDependents(node) {
-				const propagation = this.propagationList;
+				const propagation = this._propagationList;
 				const nodeData = this.instanceData.get(node);
 
 				let i = 0;
 				function insert(item) {
 					while (i < propagation.length) {
-						if (propagation[i] === dep) {
+						if (propagation[i] === node) {
 							continue dependency;
 						}
-						if (propagation[i].depth > dep.depth) {
+						if (propagation[i].depth > node.depth) {
 							--i;
 							break;
 						}
 						++i;
 					}
 					if (i == propagation.length) {
-						propagation.push(dep);
+						propagation.push(node);
 					} else {
-						propagation.splice(i, 0, dep);
+						propagation.splice(i, 0, node);
 					}
 				}
 				// Add any dependent properties
@@ -109,7 +139,7 @@ export function dedupeBaseClass(base) {
 
 			// Consume the propagation list while items are still being added to it.
 			*_propagationIterator() {
-				const propagation = this.propagationList;
+				const propagation = this._propagationList;
 				while (propagation.length != 0) {
 					let toUpdate = propagation.shift();
 					yield toUpdate;
@@ -123,13 +153,12 @@ export function dedupeBaseClass(base) {
 					return;
 				}
 
-				for (let prop of this._propagationIterator()) {
-					if (prop.value) {
-						// Computed Property:
-						prop.revalidate.call(this);
+				for (let node of this._propagationIterator()) {
+					if (node.value) {
+						this.revalidate(node);
 					} else {
 						// User:
-						prop.func(...(prop.dependencies.map(name => this[name])));
+						node.func(...(node.dependencies.map(name => this[name])));
 					}
 				}
 			}
@@ -163,10 +192,10 @@ export function dedupeBaseClass(base) {
 
 					// WorkingDeps should also probably be a Set, I just don't know how to iterate over a Set and add items to it.
 					let workingDeps = deps.map(name => {
-						if (name in this.proxies) {
-							return this.proxies[name];
+						if (name in this.nodes) {
+							return this.nodes[name];
 						} else {
-							throw new Error(`Can't create a user that depends on a property that this model doesn't have`);
+							throw new Error(`Can't create a user that depends on a property that this model doesn't have.`);
 						}
 					});
 					const path = userObj.path;
