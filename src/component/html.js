@@ -65,7 +65,7 @@ function createTemplate(strings) {
 		cachedTemplates.set(strings, template);
 		template.innerHTML = str;
 
-		// Turn the marker texts into marker comment nodes
+		// Turn the marker texts into marker comment nodes (attribute and location)
 		let locations = [];
 		function sub(node) {
 			console.log(node);
@@ -120,7 +120,7 @@ function createTemplate(strings) {
 				}
 				if (attributes.length != 0) {
 					attributes.sort((a, b) => a.attrOrder - b.attrOrder);
-					node.parentNode.insertBefore(new Comment(`${attributes.map(a => a)}`), node);
+					node.parentNode.insertBefore(new Comment(attributes.map(a => a.toJSON()).join(', ')), node);
 				}
 			}
 			if (node.hasChildNodes()) {
@@ -132,7 +132,10 @@ function createTemplate(strings) {
 
 		}
 
-		sub(template);
+		// Recursively turn the text markers into proper comment nodes
+		sub(template.content);
+
+		console.log(template);
 
 		return template;
 	}

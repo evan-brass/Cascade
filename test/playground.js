@@ -1,4 +1,4 @@
-import View from "../src/view/view.js";
+import Component from "../src/component/component.js";
 import Model from "../src/model/model.js";
 
 const Person = Model({
@@ -53,13 +53,14 @@ setTimeout(() => {
 	inst.title = "New Title!";
 }, 5000);
 
-let viewResult = View(inst, function (one, html) {
+let viewResult = Component(Post, function (cascade) {
+	const html = cascade.html;
 	return html`<article ${created =>
 		(Date.now() - created.getTime() < (24 * 60 * 60 * 1000)) ? 'new' : ''}>
 		<header>
-			<h1>${one('title')} &mdash; ${author => author.first}</h1>
+			<h1>${title => title} &mdash; ${author => author.first}</h1>
 		</header>
-		${one('contents')}
+		${contents => contents}
 	</article>`;
 });
 
