@@ -7,14 +7,14 @@ export function dedupeBaseClass(base) {
 	if (base.propertyDefinitions !== undefined) {
 		// The main BaseModel must already be in the prototype chain
 		// MAYBE: This doesn't need to be a class decleration.  Something better?
-		return class SubModel extends base {
+		return class extends base {
 			constructor(...parameters) {
 				super(...parameters);
 			}
 		};
 	} else {
 		// The BaseModel isn't in the prototype chain yet
-		return class BaseModel extends base {
+		return class extends base {
 			constructor(...parameters) {
 				super();
 

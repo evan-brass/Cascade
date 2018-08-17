@@ -66,8 +66,7 @@ function createTemplate(strings) {
 		template.innerHTML = str;
 
 		// Turn the marker texts into marker comment nodes (attribute and location)
-		let locations = [];
-		function sub(node) {
+		function convert(node) {
 			console.log(node);
 			// Base Case
 			if (node.nodeType == Node.TEXT_NODE) {
@@ -75,9 +74,6 @@ function createTemplate(strings) {
 				let index = node.textContent.indexOf(idStr);
 				if (index != -1) {
 					let exprNode = new Comment(`text-${UID}`);
-					locations.push({
-						type: 'text'
-					});
 					let pre = node.textContent.slice(0, index);
 					let post = node.textContent.slice(index + idStr.length);
 					let parts = [];
@@ -120,20 +116,20 @@ function createTemplate(strings) {
 				}
 				if (attributes.length != 0) {
 					attributes.sort((a, b) => a.attrOrder - b.attrOrder);
-					node.parentNode.insertBefore(new Comment(attributes.map(a => a.toJSON()).join(', ')), node);
+					node.parentNode.insertBefore(new Comment(attributes.map(a => JSON.stringify(a)).join('; ')), node);
 				}
 			}
 			if (node.hasChildNodes()) {
 				// Sub all of it's child nodes
 				for (let i = 0; i < node.childNodes.length; ++i) {
-					sub(node.childNodes[i]);
+					convert(node.childNodes[i]);
 				}
 			}
 
 		}
 
 		// Recursively turn the text markers into proper comment nodes
-		sub(template.content);
+		convert(template.content);
 
 		console.log(template);
 
@@ -141,54 +137,22 @@ function createTemplate(strings) {
 	}
 }
 
+function link(instance, fragment, parts) {
+
+}
+
 export default function html(model) {
 	return function (strings, ...expressions) {
+		// Process the strings (create a template with the proper marker comments)
 		let template = createTemplate(strings);
 
-		/*
-
-		let partExpressions = [];
-		let i;
-		for (i = 0; i < expressions.length; ++i) {
-			const exp = expressions[i];
-			const left = strings[i];
-			const right = strings[i + 1];
-
-			str = str.concat(left);
-			if (exp instanceof Function) {
-				partExpressions.push(exp);
-				exp.location = location(str);
-				str = str.concat(partIDs[exp.location]);
-			} else {
-				str = str.concat(exp.toString());
-			}
+		// Process the expressions (
+		let parts = createParts(expressions);
+		
+		return function (instance) {
+			let fragment = document.importNode(template.content, true);
+			link(instance, fragment, parts);
+			return fragment;
 		}
-		// Append the last string (There's one more string then there are expressions, always)
-		str.concat(strings[i]);
-
-		console.log(str);
-
-		let temp = document.createElement('template');
-		temp.innerHTML = str;
-		let fragment = temp.content;
-		console.log(fragment);
-
-		let locations = locateParts(fragment);
-
-		// Create user functions for every expression that 
-		for (let i = 0; i < locations.length; ++i) {
-			const location = locations[i];
-			const expr = partExpressions[i];
-			let deps = parameterList(expr);
-			model.use(deps, updater(location, expr));
-		}
-
-		console.log(fragment);
-		return {
-			fragment,
-			locations,
-			partExpressions
-		};
-		*/
 	};
 }

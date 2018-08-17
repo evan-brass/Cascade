@@ -1,5 +1,6 @@
 import Component from "../src/component/component.js";
 import Model from "../src/model/model.js";
+import StateModel from "../src/component/stateModel.js";
 
 const Person = Model({
 	'constructors': [
@@ -53,7 +54,9 @@ setTimeout(() => {
 	inst.title = "New Title!";
 }, 5000);
 
-let viewResult = Component(Post, function (cascade) {
+let Simple;
+// /*
+Simple = Component(function (cascade) {
 	const html = cascade.html;
 	return html`<article ${created =>
 		(Date.now() - created.getTime() < (24 * 60 * 60 * 1000)) ? 'new' : ''}>
@@ -63,6 +66,24 @@ let viewResult = Component(Post, function (cascade) {
 		${contents => contents}
 	</article>`;
 });
+// */
+ /*
+Simple = class extends HTMLElement {
+	constructor() {
+		super();
 
-console.log(viewResult);
-document.getElementById('playground').appendChild(viewResult.fragment);
+		// Create a shadowDOM
+		this.attachShadow({ mode: 'open' });
+
+		// Create our fragment and link into it.
+		this.shadowRoot.appendChild(template(this));
+	}
+};
+// */
+
+customElements.define('test-el', Simple);
+
+let el = document.createElement('test-el');
+console.log(el);
+
+document.getElementById('playground').appendChild(el);
