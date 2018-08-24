@@ -1,4 +1,4 @@
-import defaultCompare from "./defaultCompare.js";
+import defaultCompare from "./defaultCompare.mjs";
 
 // TODO: Detect Circular Dependencies?  How do we do that when the graph keeps changing.
 

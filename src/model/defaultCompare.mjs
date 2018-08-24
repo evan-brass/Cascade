@@ -1,6 +1,3 @@
-"use strict";
-
-
 // Used to determine if we need to call the watchers
 export function defaultCompare(a, b) {
 	if (a instanceof Date && b instanceof Date) {

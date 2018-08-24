@@ -1,4 +1,4 @@
-import { Node, DataNode, WatcherNode } from "./nodes.js";
+import { Node, DataNode, WatcherNode } from "./nodes.mjs";
 
 function standardizeComputed(computed) {
 	for (let name in computed) {
