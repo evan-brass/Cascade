@@ -1,5 +1,3 @@
-"use strict";
-
 import { parameterList } from "./common.js";
 
 const propagationSym = Symbol("Cascade: Property update propagation list");
@@ -350,12 +348,11 @@ export default function (newPropertyDefinitions, base = Object) {
 		if (def.type === undefined) {
 			throw new InvalidDefinition('Currently, definitions must have a type specified, even on simple properties');
 		}
-		if (def.value === undefined) {
+		if (def.value === undefined && !(def.func instanceof Function)) {
 			throw new InvalidDefinition('A default value or value computing function must be defined on the definition');
 		}
 
 		if (def.value instanceof Function) {
-
 			// Computed property or computed default for a simple property
 			def.dependencies = parameterList(def.value);
 		} else {

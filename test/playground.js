@@ -34,6 +34,7 @@ const Post = Model({
 	}
 });
 
+/*
 View(, function(html) {
 	return html`<article>
 		<header>
@@ -42,3 +43,4 @@ View(, function(html) {
 		This number is: ${80 + 5}
 	</article>${() => "happy"}`;
 })
+*/
